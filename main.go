@@ -1,25 +1,60 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "strconv"
-    "time"
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"time"
 
-    "github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go"
 )
 
-// the topic and broker address are initialized as constants
-const (
-	topic          = "demo-topic"
-	broker1Address = "localhost:29092"
-)
+func createTopic(ctx context.Context, broker1Address, topic string, numPartitions, replicationFactor int) {
+	conn, err := kafka.Dial("tcp", broker1Address)
+	if err != nil {
+		panic(fmt.Sprintf("failed to connect to Kafka broker: %v", err))
+	}
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get controller: %v", err))
+	}
+
+	controllerConn, err := kafka.Dial("tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	if err != nil {
+		panic(fmt.Sprintf("failed to connect to controller: %v", err))
+	}
+	defer controllerConn.Close()
+
+	topicConfigs := kafka.TopicConfig{
+		Topic:             topic,
+		NumPartitions:     numPartitions,
+		ReplicationFactor: replicationFactor,
+	}
+
+	err = controllerConn.CreateTopics(topicConfigs)
+	if err != nil {
+		fmt.Printf("failed to create topic: %v\n", err)
+	} else {
+		fmt.Printf("topic %s created successfully\n", topic)
+	}
+}
 
 func produce(ctx context.Context) {
+	broker1Address := os.Getenv("KAFKA_BROKER_ADDRESS")
+	topic := os.Getenv("KAFKA_TOPIC")
+
+	if broker1Address == "" || topic == "" {
+		panic("KAFKA_BROKER_ADDRESS or KAFKA_TOPIC is not set")
+	}
+
 	// initialize a counter
 	i := 0
 
-	// intialize the writer with the broker addresses, and the topic
+	// initialize the writer with the broker addresses, and the topic
 	w := kafka.NewWriter(kafka.WriterConfig{
 		Brokers: []string{broker1Address},
 		Topic:   topic,
@@ -30,9 +65,8 @@ func produce(ctx context.Context) {
 		// to decide which partition (and consequently, which broker)
 		// the message gets published on
 		err := w.WriteMessages(ctx, kafka.Message{
-			Key: []byte(strconv.Itoa(i)),
-			// create an arbitrary message payload for the value
-			Value: []byte("this is message" + strconv.Itoa(i)),
+			Key:   []byte(strconv.Itoa(i)),
+			Value: []byte("this is message " + strconv.Itoa(i)), // create an arbitrary message payload for the value
 		})
 		if err != nil {
 			panic("could not write message " + err.Error())
@@ -47,6 +81,13 @@ func produce(ctx context.Context) {
 }
 
 func consume(ctx context.Context) {
+	broker1Address := os.Getenv("KAFKA_BROKER_ADDRESS")
+	topic := os.Getenv("KAFKA_TOPIC")
+
+	if broker1Address == "" || topic == "" {
+		panic("KAFKA_BROKER_ADDRESS or KAFKA_TOPIC is not set")
+	}
+
 	// initialize a new reader with the brokers and topic
 	// the groupID identifies the consumer and prevents
 	// it from receiving duplicate messages
@@ -69,10 +110,20 @@ func consume(ctx context.Context) {
 func main() {
 	// create a new context
 	ctx := context.Background()
-	// produce messages in a new go routine, since
+
+	broker1Address := os.Getenv("KAFKA_BROKER_ADDRESS")
+	topic := os.Getenv("KAFKA_TOPIC")
+
+	if broker1Address == "" || topic == "" {
+		panic("KAFKA_BROKER_ADDRESS or KAFKA_TOPIC is not set")
+	}
+
+	// Create the topic
+	createTopic(ctx, broker1Address, topic, 3, 1)
+
+	// Produce messages in a new go routine, since
 	// both the produce and consume functions are
 	// blocking
 	go produce(ctx)
 	consume(ctx)
 }
-

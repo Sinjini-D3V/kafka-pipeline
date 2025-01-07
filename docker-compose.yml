@@ -27,6 +27,12 @@ services:
       - "29092:29092"
     volumes:
       - kafka_data1:/bitnami/kafka
+    healthcheck:
+      test: kafka-topics.sh --list --bootstrap-server localhost:9092 || exit 1  # Check if Kafka is accepting connections on port 9092
+      interval: 10s
+      retries: 10
+      start_period: 30s
+      timeout: 5s
  
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -38,7 +44,14 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:9092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-
+  go-app:
+    build: .
+    depends_on:
+      kafka1:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ADDRESS: kafka1:9092
+      KAFKA_TOPIC: demo-topic
 volumes:
   kafka_data1:
     driver: local

@@ -1,6 +1,6 @@
 module kafka-pipeline
 
-go 1.23.4
+go 1.23
 
 require (
 	github.com/IBM/sarama v1.43.3 // indirect
